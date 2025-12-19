@@ -1,0 +1,1 @@
+python3 passport_photo.py --input {input_image_path} --output {output_image_path} 

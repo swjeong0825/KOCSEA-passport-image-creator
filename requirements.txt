@@ -1,0 +1,6 @@
+numpy
+pillow
+opencv-python
+mediapipe==0.10.14
+rembg
+onnxruntime
