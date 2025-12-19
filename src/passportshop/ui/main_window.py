@@ -4,7 +4,7 @@ import os
 import threading
 import traceback
 import tkinter as tk
-from dataclasses import asdict, replace
+from dataclasses import replace
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps
@@ -12,6 +12,7 @@ from PIL import Image, ImageOps
 from passportshop.app.state import AppState
 from passportshop.app.temp_paths import TempPaths
 from passportshop.ui.image_canvas import ImageCanvas
+from passportshop.validation.validator import format_report_text, validate_passport_photo
 
 # Use the existing non-GUI pipeline (expected to be in your project root as passport_photo.py)
 try:
@@ -21,7 +22,7 @@ except Exception:
 
 
 class PassportShopApp(ttk.Frame):
-    """Step 3: Upload + Preview + Process using existing pipeline (Validate/Save still stubbed)."""
+    """PassportShop GUI (Steps 1–4 implemented; Step 5 export stub)."""
 
     def __init__(self, master: tk.Tk, state: AppState):
         super().__init__(master)
@@ -142,9 +143,9 @@ class PassportShopApp(ttk.Frame):
         self.tree.heading("rule", text="Rule")
         self.tree.heading("status", text="Status")
         self.tree.heading("details", text="Details")
-        self.tree.column("rule", width=160, stretch=False)
+        self.tree.column("rule", width=180, stretch=False)
         self.tree.column("status", width=80, stretch=False)
-        self.tree.column("details", width=380, stretch=True)
+        self.tree.column("details", width=420, stretch=True)
 
         self.tree.grid(row=0, column=0, sticky="nsew")
 
@@ -192,14 +193,15 @@ class PassportShopApp(ttk.Frame):
         self.btn_save.state(["disabled"])
         self.btn_copy_report.state(["disabled"])
 
-    def _set_processing_ui(self, processing: bool) -> None:
+    def _set_processing_ui(self, processing: bool, message: str = "Working…") -> None:
         if processing:
             self.btn_upload.state(["disabled"])
             self.btn_process.state(["disabled"])
             self.btn_validate.state(["disabled"])
             self.btn_save.state(["disabled"])
             self.btn_reset.state(["disabled"])
-            self.set_busy(True, "Processing…")
+            self.btn_copy_report.state(["disabled"])
+            self.set_busy(True, message)
         else:
             self.btn_upload.state(["!disabled"])
             self.btn_reset.state(["!disabled"])
@@ -216,12 +218,29 @@ class PassportShopApp(ttk.Frame):
                 self.btn_validate.state(["disabled"])
                 self.btn_save.state(["disabled"])
 
+            if self.state.validation_report is not None:
+                self.btn_copy_report.state(["!disabled"])
+            else:
+                self.btn_copy_report.state(["disabled"])
+
             self.set_busy(False)
 
     def _clear_validation_view(self) -> None:
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         self.btn_copy_report.state(["disabled"])
+
+    def _render_validation_report(self) -> None:
+        self._clear_validation_view()
+        report = self.state.validation_report
+        if report is None:
+            return
+
+        for r in report.results:
+            status = "✅" if r.passed else "❌"
+            self.tree.insert("", "end", values=(r.rule_id, status, r.message))
+
+        self.btn_copy_report.state(["!disabled"])
 
     def _load_image_rgb(self, path: str) -> Image.Image:
         img = Image.open(path)
@@ -231,7 +250,7 @@ class PassportShopApp(ttk.Frame):
         return img
 
     def _sync_params_from_ui(self) -> None:
-        # ProcessingParams is frozen in your project -> replace() to update
+        # ProcessingParams is frozen -> replace() to update
         params = self.state.params
         try:
             params = replace(params, size=int(self.var_size.get()))
@@ -296,7 +315,7 @@ class PassportShopApp(ttk.Frame):
             messagebox.showerror(
                 "Pipeline not found",
                 "Could not import process_passport_photo.\n\n"
-                "Make sure passport_photo.py is in your project root and contains process_passport_photo().",
+                "Make sure passport_photo.py is importable and contains process_passport_photo().",
             )
             return
 
@@ -308,7 +327,7 @@ class PassportShopApp(ttk.Frame):
         self.state.processed_temp_path = out_path
 
         # UI: busy + disable controls
-        self._set_processing_ui(True)
+        self._set_processing_ui(True, message="Processing…")
 
         def worker() -> None:
             err: Exception | None = None
@@ -328,11 +347,9 @@ class PassportShopApp(ttk.Frame):
             def finish_on_ui_thread() -> None:
                 if err is not None:
                     self.state.processed_pil = None
+                    self.state.validation_report = None
                     self._set_processing_ui(False)
-                    messagebox.showerror(
-                        "Processing failed",
-                        f"{err}\n\n{tb or ''}".strip(),
-                    )
+                    messagebox.showerror("Processing failed", f"{err}\n\n{tb or ''}".strip())
                     self.set_status("Processing failed.")
                     return
 
@@ -340,6 +357,7 @@ class PassportShopApp(ttk.Frame):
                     processed = self._load_image_rgb(out_path)
                 except Exception as e2:
                     self.state.processed_pil = None
+                    self.state.validation_report = None
                     self._set_processing_ui(False)
                     messagebox.showerror("Load failed", f"Processed image was created, but could not be loaded.\n\n{e2}")
                     self.set_status("Load processed image failed.")
@@ -362,14 +380,64 @@ class PassportShopApp(ttk.Frame):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    # ---------- Step 4/5 stubs ----------
+    # ---------- Step 4: Validate ----------
 
     def on_validate(self) -> None:
-        messagebox.showinfo("Step 3", "Validate will be implemented in Step 4.")
-        self.set_status("Validate clicked (Step 4 will run rules).")
+        if self.state.processed_pil is None:
+            messagebox.showwarning("Not ready", "Process a photo first.")
+            return
+
+        self._sync_params_from_ui()
+        processed = self.state.processed_pil
+        params = self.state.params
+
+        self._set_processing_ui(True, message="Validating…")
+
+        def worker() -> None:
+            err: Exception | None = None
+            tb: str | None = None
+            report = None
+            try:
+                report = validate_passport_photo(processed, params)
+            except Exception as e:
+                err = e
+                tb = traceback.format_exc()
+
+            def finish_on_ui_thread() -> None:
+                self._set_processing_ui(False)
+                if err is not None:
+                    details = f"{err}\n\n{tb or ''}".strip()
+                    messagebox.showerror("Validation failed", details)
+                    self.set_status("Validation failed.")
+                    return
+
+                self.state.validation_report = report
+                self._render_validation_report()
+
+                if report and report.passed:
+                    self.set_status("Validation complete. All checks passed.")
+                else:
+                    self.set_status("Validation complete (some checks failed).")
+
+            self.master.after(0, finish_on_ui_thread)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_copy_report(self) -> None:
+        report = self.state.validation_report
+        if report is None:
+            messagebox.showinfo("No report", "Run Validate first.")
+            return
+
+        text = format_report_text(report)
+        self.master.clipboard_clear()
+        self.master.clipboard_append(text)
+        self.set_status("Copied validation report.")
+
+    # ---------- Step 5 stub ----------
 
     def on_save(self) -> None:
-        messagebox.showinfo("Step 3", "Save/Export will be implemented in Step 5.")
+        messagebox.showinfo("Step 4", "Save/Export will be implemented in Step 5.")
         self.set_status("Save clicked (Step 5 will export the image/report).")
 
     def on_reset(self) -> None:
@@ -388,18 +456,18 @@ class PassportShopApp(ttk.Frame):
         self.set_status("Reset complete.")
 
     def on_restore_defaults(self) -> None:
-        self.state.params = replace(self.state.params, size=600, head_ratio=0.62, remove_background=True)
+        self.state.params = replace(
+            self.state.params,
+            size=600,
+            head_ratio=0.62,
+            remove_background=True,
+        )
 
         self.var_size.set(self.state.params.size)
         self.var_head_ratio.set(self.state.params.head_ratio)
         self.var_remove_bg.set(self.state.params.remove_background)
 
         self.set_status("Defaults restored.")
-
-    def on_copy_report(self) -> None:
-        self.master.clipboard_clear()
-        self.master.clipboard_append("No report yet.")
-        self.set_status("Copied placeholder report.")
 
 
 def run() -> None:
