@@ -1,0 +1,70 @@
+{
+  "saved_image_path": "/Users/sunwoojeong/Study/KOCSEA/passport_3/output/face1_passport.jpg",
+  "source_input_path": "/Users/sunwoojeong/Study/KOCSEA/passport_3/input/face1.jpg",
+  "processed_temp_path": "/var/folders/jm/hwnp4x291qd9n0vw1p4kzw_m0000gn/T/passportshop/preview.jpg",
+  "params": {
+    "size": 600,
+    "head_ratio": 0.62,
+    "remove_background": true
+  },
+  "report": {
+    "passed": false,
+    "results": [
+      {
+        "rule_id": "Size",
+        "passed": true,
+        "message": "600x600 pixels (expected 600x600).",
+        "metrics": {
+          "width": 600,
+          "height": 600,
+          "expected": 600
+        }
+      },
+      {
+        "rule_id": "Head ratio",
+        "passed": true,
+        "message": "0.62 of image height (target 0.50–0.69).",
+        "metrics": {
+          "head_ratio": 0.6152859032154083,
+          "head_px": 369.171541929245,
+          "range": [
+            0.5,
+            0.69
+          ]
+        }
+      },
+      {
+        "rule_id": "Centering",
+        "passed": true,
+        "message": "Nose offset +0px (tolerance ±48px).",
+        "metrics": {
+          "nose_x": 300.40283203125,
+          "center_x": 300.0,
+          "dx_px": 0.40283203125,
+          "tolerance_px": 48.0
+        }
+      },
+      {
+        "rule_id": "Background whiteness",
+        "passed": false,
+        "message": "Near-white border pixels: 54.3% (target ≥ 95%). Background may not be white enough.",
+        "metrics": {
+          "white_ratio": 0.5426111111111112,
+          "margin_px": 30,
+          "threshold": 245
+        }
+      },
+      {
+        "rule_id": "Lighting",
+        "passed": false,
+        "message": "Mean 148, Std 93, Clip(D/B) 0.5%/37.5%. Avoid harsh shadows/backlight; use even front lighting.",
+        "metrics": {
+          "luma_mean": 148.1026153564453,
+          "luma_std": 92.87127685546875,
+          "dark_clip": 0.004772222222222222,
+          "bright_clip": 0.37535277777777776
+        }
+      }
+    ]
+  }
+}

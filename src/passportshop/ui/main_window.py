@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import json
+import shutil
+from pathlib import Path
 import threading
 import traceback
 import tkinter as tk
-from dataclasses import replace
+from dataclasses import asdict, replace
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps
@@ -437,8 +440,108 @@ class PassportShopApp(ttk.Frame):
     # ---------- Step 5 stub ----------
 
     def on_save(self) -> None:
-        messagebox.showinfo("Step 4", "Save/Export will be implemented in Step 5.")
-        self.set_status("Save clicked (Step 5 will export the image/report).")
+        # Step 5: Save / Export
+        if self.state.processed_pil is None:
+            messagebox.showwarning("Not ready", "Process a photo first.")
+            return
+
+        # Suggest a default filename based on input
+        default_dir = None
+        default_name = "passport_photo.jpg"
+        if self.state.input_path:
+            default_dir = os.path.dirname(self.state.input_path)
+            stem = Path(self.state.input_path).stem
+            default_name = f"{stem}_passport.jpg"
+
+        path = filedialog.asksaveasfilename(
+            title="Save passport photo",
+            initialdir=default_dir,
+            initialfile=default_name,
+            defaultextension=".jpg",
+            filetypes=[
+                ("JPEG (*.jpg; *.jpeg)", "*.jpg *.jpeg"),
+                ("PNG (*.png)", "*.png"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+
+        out_path = str(Path(path))
+        out_lower = out_path.lower()
+
+        try:
+            # If user saves as JPEG and we already have a JPEG temp file, copy it to avoid recompression.
+            temp = self.state.processed_temp_path
+            if (
+                temp
+                and os.path.exists(temp)
+                and out_lower.endswith((".jpg", ".jpeg"))
+                and temp.lower().endswith((".jpg", ".jpeg"))
+                and os.path.abspath(temp) != os.path.abspath(out_path)
+            ):
+                shutil.copyfile(temp, out_path)
+            else:
+                img = self.state.processed_pil
+                if out_lower.endswith((".jpg", ".jpeg")):
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    img.save(out_path, format="JPEG", quality=95, optimize=True)
+                elif out_lower.endswith(".png"):
+                    img.save(out_path, format="PNG", optimize=True)
+                else:
+                    # Default to JPEG if extension is unknown
+                    if not out_path.lower().endswith((".jpg", ".jpeg", ".png")):
+                        out_path += ".jpg"
+                    img = self.state.processed_pil
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    img.save(out_path, format="JPEG", quality=95, optimize=True)
+
+            # Optional: export JSON validation report next to the image
+            report = self.state.validation_report
+            saved_report_path = None
+            if report is not None:
+                if messagebox.askyesno("Export report?", "Also save a validation report JSON next to the image?"):
+                    out_dir = str(Path(out_path).parent)
+                    stem = Path(out_path).stem
+                    saved_report_path = str(Path(out_dir) / f"{stem}_report.json")
+                    payload = {
+                        "saved_image_path": out_path,
+                        "source_input_path": self.state.input_path,
+                        "processed_temp_path": self.state.processed_temp_path,
+                        "params": asdict(self.state.params),
+                        "report": asdict(report),
+                    }
+                    with open(saved_report_path, "w", encoding="utf-8") as f:
+                        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+            if saved_report_path:
+                self.set_status(f"Saved photo + report: {os.path.basename(out_path)}, {os.path.basename(saved_report_path)}")
+                messagebox.showinfo(
+                    "Saved",
+                    f"""Saved photo:
+{out_path}
+
+Saved report:
+{saved_report_path}""",
+                )
+            else:
+                self.set_status(f"Saved photo: {os.path.basename(out_path)}")
+                messagebox.showinfo(
+                    "Saved",
+                    f"""Saved photo:
+{out_path}""",
+                )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Save failed",
+                f"""Could not save the output.
+
+{e}""",
+            )
+            self.set_status("Save failed.")
 
     def on_reset(self) -> None:
         self.state.reset()
